@@ -27,6 +27,7 @@ ARMGNU ?= $(HOME)/c/gcc-linaro-7.1.1-2017.08-x86_64_aarch64-elf/bin/aarch64-elf
 
 BUILD_DIR = build
 SOURCE_DIR = src
+CORE_DIR = core
 
 TARGET = $(BUILD_DIR)/kernel.elf
 LIST = $(BUILD_DIR)/kernel.list
@@ -35,10 +36,16 @@ LINKER = kernel.ld
 
 SOURCES = $(wildcard $(SOURCE_DIR)/*.c)
 OBJECTS := $(patsubst $(SOURCE_DIR)/%.c,$(BUILD_DIR)/%.o,$(SOURCES))
-BUILTINS := $(wildcard $(SOURCE_DIR)/*.add)
+CORE_SOURCES := $(wildcard $(CORE_DIR)/*.io)
 
 TARGET_CPU = cortex-a57
-CFLAGS = -nostdlib -mcpu=$(TARGET_CPU) -g -I $(SOURCE_DIR) -I $(BUILD_DIR)
+CFLAGS = -nostdlib \
+		 -mcpu=$(TARGET_CPU) \
+		 -I $(SOURCE_DIR) \
+		 -I $(BUILD_DIR) \
+		 -ggdb3 \
+		 -Wall \
+		 -std=c99
 
 QEMU := qemu-system-aarch64
 QEMUFLAGS := -d guest_errors,unimp -M virt -cpu $(TARGET_CPU) -nographic -serial mon:stdio
@@ -50,8 +57,8 @@ rebuild: clean all
 $(LIST) : $(BUILD_DIR)/kernel.elf
 	$(ARMGNU)-objdump -d $(BUILD_DIR)/kernel.elf > $(LIST)
 
-$(BUILD_DIR)/kernel.elf : $(OBJECTS) $(LINKER)
-	$(ARMGNU)-ld --no-undefined $(OBJECTS) -Map $(MAP) -o $(BUILD_DIR)/kernel.elf -T $(LINKER)
+$(BUILD_DIR)/kernel.elf : _builtin_message_tables $(OBJECTS) $(LINKER) $(BUILD_DIR)/core.o
+	$(ARMGNU)-ld --no-undefined $(OBJECTS) $(BUILD_DIR)/core.o -Map $(MAP) -o $(BUILD_DIR)/kernel.elf -T $(LINKER)
 
 $(BUILD_DIR)/%.o: $(SOURCE_DIR)/%.c $(BUILD_DIR)
 	$(ARMGNU)-gcc $(CFLAGS) -c $< -o $@
@@ -59,10 +66,22 @@ $(BUILD_DIR)/%.o: $(SOURCE_DIR)/%.c $(BUILD_DIR)
 $(BUILD_DIR)/%.S: $(SOURCE_DIR)/%.c $(BUILD_DIR)
 	$(ARMGNU)-gcc $(CFLAGS) -S -c $< -o $@
 
-$(BUILD_DIR)/builtins.add: $(BUILTINS)
-	cat $(BUILTINS) > $@
+_builtin_message_tables: $(SOURCES)
+	python3 stage0/extract-builtin-message-tables.py \
+		src/method-names.lock \
+		build/builtin-message-tables \
+		$<
 
-# $(BUILD_DIR)/main.o: $(BUILD_DIR)/builtins.add
+$(BUILD_DIR)/core.o: $(BUILD_DIR)/core.iob
+	$(ARMGNU)-objcopy \
+		-I binary \
+		-O elf64-littleaarch64 \
+		-B aarch64 \
+		--rename-section .data=.rodata,alloc,load,readonly,data,contents \
+		$< $@
+
+$(BUILD_DIR)/core.iob: $(CORE_SOURCES)
+	cat $< | python3 stage0/compiler.py > $@
 
 $(BUILD_DIR):
 	mkdir $@
@@ -78,6 +97,3 @@ gdb:
 
 clean : 
 	-rm -rf $(BUILD_DIR)
-	-rm -f $(TARGET)
-	-rm -f $(LIST)
-	-rm -f $(MAP)

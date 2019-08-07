@@ -1,15 +1,15 @@
 #include <stddef.h>
 #include <stdint.h>
 
-extern const void *__stack_top;
-volatile unsigned char* UART_START = (unsigned char*) 0x09000000;
+#define BAREIO_MESSAGE(context, name)
 
-#define BAREIO_IS_BUILTIN_MESSAGE ((ptrdiff_t) PTRDIFF_MIN)
 #define BAREIO_HALT ((ptrdiff_t) -1)
 
 typedef struct {
 	ptrdiff_t name_offset;
 } BareioMessage;
+
+volatile unsigned char* UART_START = (unsigned char*) 0x09000000;
 
 void bareio_uart_puts(char *s) {
 	for (; *s; s++) {
@@ -17,30 +17,34 @@ void bareio_uart_puts(char *s) {
 	}
 }
 
-void bareio_say_hi() {
+BAREIO_MESSAGE("globals", "say-hi")
+void bareio_globals_say_hi() {
 	bareio_uart_puts("BareIO!\n");
 }
 
-void (*builtin_msgs[])() = {
-	bareio_say_hi,
-};
+void _bareio_dispatch_globals(ptrdiff_t operation) {
+	void (*message_func)();
+
+#   include "builtin-message-tables/globals.c"
+
+	message_func();
+}
 
 void bareio_run(BareioMessage *msgs) {
 	for (BareioMessage *msg = msgs; msg->name_offset != BAREIO_HALT; msg++) {
-		if (msg->name_offset & BAREIO_IS_BUILTIN_MESSAGE) {
-			builtin_msgs[msg->name_offset ^ BAREIO_IS_BUILTIN_MESSAGE]();
+		if (msg->name_offset < 0) {
+			_bareio_dispatch_globals(msg->name_offset);
 		}
 	}
 }
 
-BareioMessage hardcoded[] = {
-	{ BAREIO_IS_BUILTIN_MESSAGE | (0) },
-	{ BAREIO_HALT },
-};
+extern BareioMessage _binary_build_core_iob_start;
 
 void bareio_runtime_main() {
-	bareio_run(hardcoded);
+	bareio_run((BareioMessage *) &_binary_build_core_iob_start);
 }
+
+extern const void *__stack_top;
 
 void _start() {
 	__asm__(
