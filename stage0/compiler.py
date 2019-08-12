@@ -13,7 +13,7 @@ if sys.stdout.isatty():
 
 MESSAGE_STRUCT = struct.Struct(f'{target.STRUCT_HEADER}{target.INT}')
 BUILTIN_MESSAGE_BASE = target.INT_MIN
-HALT = -1
+MESSAGES_END = -1
 
 def output_packed(struct_, *args):
 	sys.stdout.buffer.write(struct_.pack(*args))
@@ -30,6 +30,6 @@ for message in sys.stdin.read().split():
 	else:
 		print('Warning: unknown message {message}', file=sys.stderr)
 
-output_packed(MESSAGE_STRUCT, HALT)
+output_packed(MESSAGE_STRUCT, MESSAGES_END)
 
 sys.stdout.flush()

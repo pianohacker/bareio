@@ -78,7 +78,7 @@ for context in contexts:
 		encoding = "utf-8",
 	)
 
-	context_output.write('\tswitch (operation) {\n')
+	context_output.write('\tswitch (message->name_offset) {\n')
 
 BUILTIN_MESSAGE_BASE = target.INT_MIN
 
@@ -90,12 +90,12 @@ for i, message in enumerate(message_contexts.items()):
 	message_offset = BUILTIN_MESSAGE_BASE + i
 
 	for context in contexts:
-		func_name = func_disallowed_chars_pattern.sub('_', f'bareio_{context}_{message_name}')
+		func_name = func_disallowed_chars_pattern.sub('_', f'bareio_builtin_{context}_{message_name}')
 
 		# We have to encode the message code oddly, because -INT_MIN is parsed as -(INT_MIN), and
 		# INT_MIN is out of range for signed ints.
 		context_outputs[context].write(
-			f'\t\tcase {message_offset + 1} -1: message_func = {func_name}; break;\n'
+			f'\t\tcase {message_offset + 1} -1: message_func = (BareioBuiltinMessageFunc*){func_name}; break;\n'
 		)
 
 for context, context_output in context_outputs.items():
