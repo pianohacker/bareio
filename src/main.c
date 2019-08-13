@@ -63,14 +63,14 @@ void bareio_run_in_context(BareioMessage *msgs, BareioObject *context) {
 	}
 }
 
-extern BareioMessage _binary_build_core_iob_start;
+extern BareioMessage _binary_core_iob_start;
 
 void bareio_runtime_main() {
 	BareioObject globals = {
 		.builtin_dispatch = _bareio_dispatch_globals,
 	};
 
-	bareio_run_in_context((BareioMessage *) &_binary_build_core_iob_start, &globals);
+	bareio_run_in_context((BareioMessage *) &_binary_core_iob_start, &globals);
 }
 
 extern const void *__stack_top;

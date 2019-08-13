@@ -69,7 +69,7 @@ $(BUILD_DIR)/%.S: $(SOURCE_DIR)/%.c $(BUILD_DIR)
 _builtin_message_tables: $(SOURCES)
 	python3 stage0/extract-builtin-message-tables.py \
 		src/method-names.lock \
-		build/builtin-message-tables \
+		${CMAKE_BINARY_DIR}/builtin-message-tables \
 		$<
 
 $(BUILD_DIR)/core.o: $(BUILD_DIR)/core.iob
