@@ -3,10 +3,11 @@ CMAKE_MINIMUM_REQUIRED(VERSION 3.13)
 
 ### Settings for cross compiling
 SET(CMAKE_SYSTEM_NAME Generic)
-STRING(APPEND CMAKE_C_FLAGS " -nostdlib -ggdb3")
+STRING(APPEND CMAKE_C_FLAGS " -nostdlib -ggdb3 -Wall")
 STRING(APPEND CMAKE_EXE_LINKER_FLAGS " -nostdlib")
 
 PROJECT(BareIO C)
+ENABLE_LANGUAGE(ASM)
 
 ## Toplevel settings
 INCLUDE_DIRECTORIES(AFTER ${CMAKE_BINARY_DIR})
@@ -18,12 +19,12 @@ SET(BAREIO_BUILTIN_SOURCES "main.io")
 LIST(TRANSFORM BAREIO_BUILTIN_SOURCES PREPEND ${CMAKE_SOURCE_DIR}/core/)
 
 ## Targets
-ADD_CUSTOM_COMMAND(OUTPUT ${CMAKE_BINARY_DIR}/core.iob
-	DEPENDS ${BAREIO_BUILTIN_SOURCES}
+ADD_CUSTOM_COMMAND(OUTPUT ${CMAKE_BINARY_DIR}/core.S
+	DEPENDS ${BAREIO_BUILTIN_SOURCES} ${CMAKE_SOURCE_DIR}/stage0/compiler.py
 	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 	COMMAND cat ${BAREIO_BUILTIN_SOURCES}
 		| python3 stage0/compiler.py
-		> ${CMAKE_BINARY_DIR}/core.iob
+		> ${CMAKE_BINARY_DIR}/core.S
 )
 
 ADD_CUSTOM_COMMAND(OUTPUT ${CMAKE_BINARY_DIR}/core.o
@@ -45,15 +46,17 @@ ADD_CUSTOM_TARGET(_builtin_message_targets
 		${BAREIO_SOURCES}
 )
 
+ADD_LIBRARY(kernel_builtin_objects OBJECT ${CMAKE_BINARY_DIR}/core.S)
+
 ADD_LIBRARY(kernel_c_objects OBJECT ${BAREIO_SOURCES})
 
 ADD_DEPENDENCIES(kernel_c_objects _builtin_message_targets)
 
 ADD_CUSTOM_TARGET(kernel ALL
-	DEPENDS kernel_c_objects ${CMAKE_BINARY_DIR}/core.o
+	DEPENDS kernel_builtin_objects kernel_c_objects
 	COMMAND ${CMAKE_LINKER}
 		--no-undefined
-		$(CMAKE_BINARY_DIR)/core.o
+		$<TARGET_OBJECTS:kernel_builtin_objects>
 		$<TARGET_OBJECTS:kernel_c_objects>
 		-Map $(CMAKE_BINARY_DIR)/kernel.map
 		-o $(CMAKE_BINARY_DIR)/kernel.elf

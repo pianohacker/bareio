@@ -80,7 +80,7 @@ for context in contexts:
 
 	context_output.write('\tswitch (message->name_offset) {\n')
 
-BUILTIN_MESSAGE_BASE = target.INT_MIN
+BUILTIN_MESSAGE_BASE = target.WORD_MIN
 
 for i, message in enumerate(message_contexts.items()):
 	message_name, contexts = message
@@ -92,8 +92,8 @@ for i, message in enumerate(message_contexts.items()):
 	for context in contexts:
 		func_name = func_disallowed_chars_pattern.sub('_', f'bareio_builtin_{context}_{message_name}')
 
-		# We have to encode the message code oddly, because -INT_MIN is parsed as -(INT_MIN), and
-		# INT_MIN is out of range for signed ints.
+		# We have to encode the message code oddly, because -WORD_MIN is parsed as -(WORD_MIN), and
+		# WORD_MIN is out of range for signed ints.
 		context_outputs[context].write(
 			f'\t\tcase {message_offset + 1} -1: message_func = (BareioBuiltinMessageFunc*){func_name}; break;\n'
 		)
