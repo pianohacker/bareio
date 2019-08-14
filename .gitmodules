@@ -1,3 +1,0 @@
-[submodule "build-deps/pahole"]
-	path = build-deps/pahole
-	url = https://git.kernel.org/pub/scm/devel/pahole/pahole.git
