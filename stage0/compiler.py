@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 import struct
 import sys
-from typing import Optional
+from typing import Optional, Union
 
 from bareio import target
 
@@ -43,7 +43,7 @@ class String:
 
 @dataclass()
 class Object:
-	string: String
+	data: Union[String, int]
 	id: int = field(init = False)
 
 	def __post_init__(self):
@@ -55,8 +55,8 @@ class Object:
 
 	def compile(self):
 		return f'''{self.label}:
-	{target.WORD_ASM} _bareio_builtin_string_dispatch
-	{target.WORD_ASM} {self.string.label}
+	{target.WORD_ASM} {"_bareio_builtin_string_dispatch" if isinstance(self.data, String) else "_bareio_builtin_integer_dispatch"}
+	{target.WORD_ASM} {self.data.label if isinstance(self.data, String) else self.data}
 	'''
 
 @dataclass()
@@ -88,10 +88,14 @@ for line in sys.stdin:
 	for message in line.split():
 		if message in method_offsets:
 			m = Message(name_offset = method_offsets[message])
+		elif message.isdecimal() or (message.startswith('-') and message[1:].isdecimal()):
+			o = Object(data = int(message))
+			objects.append(o)
+			m = Message(name_offset = 0, forced_result = o)
 		elif message.startswith('"') and message.endswith('"'):
 			s = String(contents = message[1:-1])
 			strings.append(s)
-			o = Object(string = s)
+			o = Object(data = s)
 			objects.append(o)
 			m = Message(name_offset = 0, forced_result = o)
 		else:

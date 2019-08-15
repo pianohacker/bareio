@@ -29,6 +29,7 @@ struct _BareioObject {
 
 	union {
 		BareioString *data_string;
+		int64_t data_integer;
 	};
 };
 
@@ -83,6 +84,37 @@ void _bareio_builtin_string_dispatch(BareioObject *self, BareioMessage *message)
 	BareioBuiltinMessageFunc *message_func;
 
 #   include "builtin-message-tables/string.c"
+
+	message_func(self, message);
+}
+
+BAREIO_MESSAGE("integer", "put")
+void bareio_builtin_integer_put(BareioObject *self, BareioMessage *message) {
+	int64_t i = self->data_integer;
+	bool negative = i < 0;
+
+	char buffer[22];
+	char *pos = buffer + 21;
+	*pos-- = '\0';
+
+	do {
+		signed char digit = i % 10;
+		*pos-- = '0' + (digit < 0 ? -digit : digit);
+		i /= 10;
+	} while (i);
+
+	if (negative) {
+		*pos-- = '-';
+	}
+
+	bareio_uart_puts(++pos);
+	bareio_uart_puts("\n");
+}
+
+void _bareio_builtin_integer_dispatch(BareioObject *self, BareioMessage *message) {
+	BareioBuiltinMessageFunc *message_func;
+
+#   include "builtin-message-tables/integer.c"
 
 	message_func(self, message);
 }
