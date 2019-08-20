@@ -99,10 +99,11 @@ class NumGenerator(DataGenerator):
 
 @dataclass
 class StringGenerator(DataGenerator):
-	post_align: int
-
 	def compile_compilers(self, indent):
-		return '\t' * indent + f'''print('.ascii "' + _escape_str(self.{self.sanitized_name}) + '"')'''
+		return (
+			'\t' * indent + f'''print('.ascii "' + _escape_str(self.{self.sanitized_name}) + '"')\n''' +
+			'\t' * indent + f'''print('.align {target.WORD_SIZE}')'''
+		)
 
 struct_def_start_pattern = re.compile(r'^(?:typedef )?struct(?: (\S+))? \{')
 struct_def_end_pattern = re.compile(r'^\}(?: (\S+))?;')
@@ -185,10 +186,7 @@ for filename in sys.argv[1:]:
 				
 			if width == 0:
 				if words[0] == 'char' and words[-1].endswith('[];'):
-					field = StringGenerator(
-						name = words[1][:-3],
-						post_align = target.WORD_SIZE,
-					)
+					field = StringGenerator(name = words[1][:-3])
 				else:
 					raise RuntimeError(f'Unhandled variable-length struct element: {words}')
 			else:
