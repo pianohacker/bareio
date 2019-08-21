@@ -19,8 +19,27 @@ SET(BAREIO_BUILTIN_SOURCES "main.io")
 LIST(TRANSFORM BAREIO_BUILTIN_SOURCES PREPEND ${CMAKE_SOURCE_DIR}/core/)
 
 ## Targets
+ADD_CUSTOM_TARGET(_builtin_message_targets
+	COMMAND python3 ${CMAKE_SOURCE_DIR}/stage0/extract-builtin-message-tables.py
+		${CMAKE_SOURCE_DIR}/src/method-names.lock
+		${CMAKE_BINARY_DIR}/builtin-message-tables
+		${BAREIO_SOURCES}
+)
+
+ADD_LIBRARY(kernel_c_objects OBJECT ${BAREIO_SOURCES})
+
+ADD_DEPENDENCIES(kernel_c_objects _builtin_message_targets)
+
+ADD_CUSTOM_COMMAND(OUTPUT ${CMAKE_BINARY_DIR}/structs.py
+	DEPENDS kernel_c_objects ${CMAKE_SOURCE_DIR}/stage0/extract-structs.py
+	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+	COMMAND python3 stage0/extract-structs.py
+		$<TARGET_OBJECTS:kernel_c_objects>
+		> ${CMAKE_BINARY_DIR}/structs.py
+)
+
 ADD_CUSTOM_COMMAND(OUTPUT ${CMAKE_BINARY_DIR}/core.S
-	DEPENDS ${BAREIO_BUILTIN_SOURCES} ${CMAKE_SOURCE_DIR}/stage0/compiler.py
+	DEPENDS ${BAREIO_BUILTIN_SOURCES} ${CMAKE_SOURCE_DIR}/stage0/compiler.py ${CMAKE_BINARY_DIR}/structs.py
 	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 	COMMAND cat ${BAREIO_BUILTIN_SOURCES}
 		| python3 stage0/compiler.py
@@ -39,18 +58,7 @@ ADD_CUSTOM_COMMAND(OUTPUT ${CMAKE_BINARY_DIR}/core.o
 		core.o
 )
 
-ADD_CUSTOM_TARGET(_builtin_message_targets
-	COMMAND python3 ${CMAKE_SOURCE_DIR}/stage0/extract-builtin-message-tables.py
-		${CMAKE_SOURCE_DIR}/src/method-names.lock
-		${CMAKE_BINARY_DIR}/builtin-message-tables
-		${BAREIO_SOURCES}
-)
-
 ADD_LIBRARY(kernel_builtin_objects OBJECT ${CMAKE_BINARY_DIR}/core.S)
-
-ADD_LIBRARY(kernel_c_objects OBJECT ${BAREIO_SOURCES})
-
-ADD_DEPENDENCIES(kernel_c_objects _builtin_message_targets)
 
 ADD_CUSTOM_TARGET(kernel ALL
 	DEPENDS kernel_builtin_objects kernel_c_objects
@@ -67,7 +75,7 @@ ADD_CUSTOM_COMMAND(TARGET kernel POST_BUILD
 	COMMAND ${CMAKE_OBJDUMP} -d ${CMAKE_BINARY_DIR}/kernel.elf > ${CMAKE_BINARY_DIR}/kernel.list
 )
 
-SET(QEMU_COMMAND "qemu-system-aarch64 -d guest_errors,unimp -M virt -cpu cortex-a57 -nographic -serial mon:stdio" CACHE STRING "QEMU command")
+SET(QEMU_COMMAND "qemu-system-aarch64 -d guest_errors,unimp -M virt -cpu cortex-a57 -vga std -nographic -serial mon:stdio" CACHE STRING "QEMU command")
 STRING(REGEX REPLACE " " ";" QEMU_COMMAND_LIST ${QEMU_COMMAND})
 
 ADD_CUSTOM_TARGET(qemu

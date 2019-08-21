@@ -206,7 +206,7 @@ for filename in sys.argv[1:]:
 		if len(stack) != 1:
 			raise RuntimeError(f'Unclosed container from parsing: ' + "\n".join(line for (i, line) in pahole_result[i:j+1]))
 
-		stack[0].name = name
+		stack[0].name = name.lstrip('_')
 		stack[0].field_names = field_names
 
 		print(stack[0].compile())
