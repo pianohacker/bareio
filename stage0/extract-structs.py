@@ -46,6 +46,9 @@ f'''class {self.sanitized_name}:
 	def __init__(self, *, {self.compile_arguments()}):
 		self.label = _get_label(f"{self.name}")
 {self.compile_initializers(2)}
+
+	def __repr__(self):
+		return f'{self.name}({{vars(self)}})'
 	
 	def compile(self):
 		print(f'{{self.label}}:')
@@ -111,18 +114,23 @@ class StringGenerator(DataGenerator):
 		)
 
 @dataclass
-class NumListGenerator(DataGenerator):
-	is_pointer: bool
+class PointerListGenerator(DataGenerator):
+	width: int
 
 	def compile_compilers(self, indent):
-		if self.is_pointer:
-			value_expr = f'''getattr(elem, "label", elem)'''
-		else:
-			value_expr = f'''elem'''
+		return (
+			'\t' * indent + f'''for elem in self.{self.sanitized_name}:\n''' +
+			'\t' * (indent + 1) + f'''print(f'.{self.width}byte {{getattr(elem, "label", elem)}}')'''
+		)
+
+@dataclass
+class DataListGenerator(DataGenerator):
+	def compile_compilers(self, indent):
+		value_expr = f''''''
 
 		return (
 			'\t' * indent + f'''for elem in self.{self.sanitized_name}:\n''' +
-			'\t' * (indent + 1) + f'''print({value_expr})\n'''
+			'\t' * (indent + 1) + f'''elem.compile()'''
 		)
 
 struct_def_start_pattern = re.compile(r'^(?:typedef )?struct(?: (\S+))? \{')
@@ -148,7 +156,7 @@ for filename in sys.argv[1:]:
 		line.rstrip('\n')
 		for line
 		in subprocess.run(
-			['pahole', '--anon_include', '--expand_types', filename],
+			['pahole', '--anon_include', filename],
 			check=True,
 
 			stdout=subprocess.PIPE,
@@ -207,10 +215,14 @@ for filename in sys.argv[1:]:
 			if width == 0:
 				if words[0] == 'char' and words[-1].endswith('[];'):
 					field = StringGenerator(name = words[-1][:-3])
-				else:
-					field = NumListGenerator(
+				elif words[1] == '*':
+					field = PointerListGenerator(
 						name = words[-1][:-3],
-						is_pointer = words[-2] == '*',
+						width = target.WORD_SIZE,
+					)
+				else:
+					field = DataListGenerator(
+						name = words[-1][:-3],
 					)
 			else:
 				field = NumGenerator(

@@ -7,7 +7,7 @@ import tempfile
 from bareio import target
 
 ## Patterns
-message_decl_pattern = re.compile(r'^BAREIO_MESSAGE\("([^"]+)", "([^"]+)"\)')
+message_decl_pattern = re.compile(r'^BAREIO_MESSAGE\(([^,]+), ([^)]+)\)')
 func_disallowed_chars_pattern = re.compile(r'^[^A-Za-z_]|[^A-Za-z0-9_]')
 
 ## Setup
@@ -16,13 +16,11 @@ if sys.version_info[0] < 3:
 	print('Python 3.0+ required', file=sys.stderr)
 	sys.exit(1)
 
-if len(sys.argv) < 4:
-	print(f'Usage {sys.argv[0]} LOCK_FILE OUTPUT_DIR INPUT_FILE...', file=sys.stderr)
+if len(sys.argv) != 2:
+	print(f'Usage {sys.argv[0]} LOCK_FILE', file=sys.stderr)
 	sys.exit(1)
 
 lock_file_name = sys.argv[1]
-out_dir = sys.argv[2]
-input_files = sys.argv[3:]
 
 ### Read lock file
 # The lock file fixes both the known methods and their order, so that as message names are added and
@@ -39,24 +37,17 @@ except OSError:
 
 ## C parsing
 
-for input_file in input_files:
-	for i, line in enumerate(open(input_file)):
-		result = message_decl_pattern.match(line)
+for line in sys.stdin:
+	result = message_decl_pattern.match(line)
 
-		if not result: continue
+	if not result: continue
 
-		context, message_name = result.groups()
-		
-		contexts.add(context)
-		message_contexts.setdefault(message_name, set()).add(context)
+	context, message_name = result.groups()
+	
+	contexts.add(context)
+	message_contexts.setdefault(message_name, set()).add(context)
 
 ## Output
-
-# First, we create our output directory if needed, then remove anything in it.
-os.makedirs(out_dir, exist_ok = True)
-for output in os.listdir(out_dir):
-	os.unlink(os.path.join(out_dir, output))
-
 # We write to the lock file by outputting to a tempfile, then renaming over.
 lock_file_out = tempfile.NamedTemporaryFile(
 	dir = os.path.dirname(lock_file_name),
@@ -69,16 +60,11 @@ lock_file_out = tempfile.NamedTemporaryFile(
 )
 
 ### Jump table writing
-context_outputs = {}
+context_results = {}
 
 for context in contexts:
-	context_outputs[context] = context_output = open(
-		os.path.join(out_dir, context + ".c"),
-		"w",
-		encoding = "utf-8",
-	)
-
-	context_output.write('\tswitch (message->name_offset) {\n')
+	context_results[context] = f'BareioBuiltinMessageFunc* _bareio_builtin_{context}_lookup(ptrdiff_t name_offset) {{\n'
+	context_results[context] += '\tswitch (name_offset) {\n'
 
 BUILTIN_MESSAGE_BASE = target.WORD_MIN
 
@@ -94,13 +80,15 @@ for i, message in enumerate(message_contexts.items()):
 
 		# We have to encode the message code oddly, because -WORD_MIN is parsed as -(WORD_MIN), and
 		# WORD_MIN is out of range for signed ints.
-		context_outputs[context].write(
-			f'\t\tcase {message_offset + 1} -1: message_func = (BareioBuiltinMessageFunc*){func_name}; break;\n'
-		)
+		context_results[context] += f'\t\tcase {message_offset + 1} -1: return {func_name};\n'
 
-for context, context_output in context_outputs.items():
-	context_output.write('\t}\n')
-	context_output.close()
+for context, context_output in context_results.items():
+	context_results[context] += '\t}\n'
+	context_results[context] += '\n'
+	context_results[context] += '\treturn 0;\n'
+	context_results[context] += '}\n'
+
+	print(context_results[context])
 
 try:
 	os.rename(lock_file_out.name, lock_file_name)

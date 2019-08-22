@@ -1,9 +1,7 @@
 "start" put
 1234 put
 -4321 put
-say-hi
-say-hi
 "middle" put
-say-hi
 "end" put
+"long string" putRange(1, 4)
 halt

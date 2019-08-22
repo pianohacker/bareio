@@ -1,3 +1,4 @@
+from collections import deque
 from dataclasses import dataclass, field
 import sys
 from typing import Optional, Union
@@ -23,58 +24,65 @@ method_offsets = {
 	in enumerate(open('src/method-names.lock'))
 }
 
-objects = []
-strings = []
+pending = deque()
 
 print('.section .data')
-print('.global _builtin_messages')
-print('_builtin_messages:')
+print('.global _builtin_script')
+print('_builtin_script:')
 
-def handle_named_message(message):
-	m = structs.BareioMessage(name_offset = method_offsets[message.name])
-	m.compile()
-	return m
+def handle_named_message(message, argument_scripts):
+	arguments = 0
+
+	if argument_scripts:
+		for a in argument_scripts:
+			pending.append(a)
+
+		arguments = structs.BareioArguments(
+			len = len(argument_scripts),
+			members = argument_scripts,
+		)
+		pending.append(arguments)
+	
+	return structs.BareioMessage(
+		name_offset = method_offsets[message.name],
+		arguments = arguments,
+	)
 
 def handle_string(string):
 	s = structs.BareioString(len = len(string.contents), contents = string.contents)
-	strings.append(s)
+	pending.append(s)
 	o = structs.BareioObject(
 		data_string = s,
-		builtin_dispatch = '_bareio_builtin_string_dispatch',
+		builtin_lookup = '_bareio_builtin_string_lookup',
 	)
-	objects.append(o)
+	pending.append(o)
 
-	m = structs.BareioMessage(name_offset = 0, forced_result = o)
-	m.compile()
-	return m
+	return structs.BareioMessage(name_offset = 0, forced_result = o)
 
 def handle_integer(integer):
 	o = structs.BareioObject(
 		data_integer = integer.value,
-		builtin_dispatch = '_bareio_builtin_integer_dispatch',
+		builtin_lookup = '_bareio_builtin_integer_lookup',
 	)
-	objects.append(o)
+	pending.append(o)
 
-	m = structs.BareioMessage(name_offset = 0, forced_result = o)
-	m.compile()
-	return m
+	return structs.BareioMessage(name_offset = 0, forced_result = o)
 
 def handle_reset_context(_):
-	m = structs.BareioMessage(name_offset = MESSAGES_RESET_CONTEXT)
-	m.compile()
-	return m
+	return structs.BareioMessage(name_offset = MESSAGES_RESET_CONTEXT)
 
-parser.messages.parse(sys.stdin.read()).walk({
+def handle_script(_, messages):
+	return structs.BareioScript(
+		messages = messages + [structs.BareioMessage(name_offset = MESSAGES_END)],
+	)
+
+parser.script.parse(sys.stdin.read()).walk({
 	parser.NamedMessage: handle_named_message,
 	parser.String: handle_string,
 	parser.Integer: handle_integer,
 	parser.ResetContext: handle_reset_context,
-})
+	parser.Script: handle_script,
+}).compile()
 
-structs.BareioMessage(name_offset = MESSAGES_END).compile()
-
-for o in objects:
-	o.compile()
-
-for s in strings:
-	s.compile()
+while pending:
+	pending.popleft().compile()

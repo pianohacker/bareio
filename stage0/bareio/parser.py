@@ -18,34 +18,41 @@ class ASTNode:
 
 class ASTContainerNode(ASTNode):
 	def walk(self, handlers, *args):
-		super().walk(
+		return super().walk(
 			handlers,
 			[child.walk(handlers, *args) for child in self.children],
 			*args,
 		)
 
+class Script(ASTContainerNode, namedtuple('Script', ['children'])):
+	pass
+
+@generate
+def script():
+	return (yield _message.many().map(Script))
+
 class String(ASTNode, namedtuple('String', ['contents'])):
 	pass
 
-_string = string('"') >> regex(r'[^"]*').map(lambda s: String(s)) << string('"')
+_string = (string('"') >> regex(r'[^"]*').map(String) << string('"')).desc('string')
 
 class Integer(ASTNode, namedtuple('Integer', ['value'])):
 	pass
 
-_integer = regex(r'-?(0|([1-9][0-9]*))').map(lambda i: Integer(int(i)))
+_integer = regex(r'-?(0|([1-9][0-9]*))').map(lambda i: Integer(int(i))).desc('integer')
 
-class NamedMessage(ASTNode, namedtuple('NamedMessage', ['name'])):
+class NamedMessage(ASTContainerNode, namedtuple('NamedMessage', ['name', 'children'])):
 	pass
 
-_named_message = regex(r'\S+').map(lambda n: NamedMessage(n))
+_named_message = seq(
+	name = regex(r'[^ \t\n\r(),]+'),
+	children = (lexeme('(') >> script.sep_by(lexeme(',')) << lexeme(')')).times(0, 1).map(lambda v: v[0] if v else []),
+).combine_dict(NamedMessage)
 
 class ResetContext(ASTNode, namedtuple('ResetContext', [])):
 	pass
 
 _reset_context = string("\n").map(lambda _: ResetContext())
-
-class Messages(ASTContainerNode, namedtuple('Messages', ['children'])):
-	pass
 
 _message = lexeme(alt(
 	_string,
@@ -54,12 +61,10 @@ _message = lexeme(alt(
 	_reset_context,
 ))
 
-messages = _message.many().map(lambda m: Messages(m))
-
 if __name__ == '__main__':
 	import sys
 
-	ast = messages.parse(sys.stdin.read())
+	ast = script.parse(sys.stdin.read())
 
 	print(ast)
 

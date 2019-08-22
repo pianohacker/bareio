@@ -19,16 +19,17 @@ SET(BAREIO_BUILTIN_SOURCES "main.io")
 LIST(TRANSFORM BAREIO_BUILTIN_SOURCES PREPEND ${CMAKE_SOURCE_DIR}/core/)
 
 ## Targets
-ADD_CUSTOM_TARGET(_builtin_message_targets
-	COMMAND python3 ${CMAKE_SOURCE_DIR}/stage0/extract-builtin-message-tables.py
+ADD_CUSTOM_TARGET(_builtin_message_tables
+	DEPENDS ${BAREIO_SOURCES} ${CMAKE_SOURCE_DIR}/stage0/extract-builtin-message-tables.py
+	COMMAND cat ${BAREIO_SOURCES}
+		| python3 ${CMAKE_SOURCE_DIR}/stage0/extract-builtin-message-tables.py
 		${CMAKE_SOURCE_DIR}/src/method-names.lock
-		${CMAKE_BINARY_DIR}/builtin-message-tables
-		${BAREIO_SOURCES}
+		> ${CMAKE_BINARY_DIR}/builtin-message-tables.c
 )
 
 ADD_LIBRARY(kernel_c_objects OBJECT ${BAREIO_SOURCES})
 
-ADD_DEPENDENCIES(kernel_c_objects _builtin_message_targets)
+ADD_DEPENDENCIES(kernel_c_objects _builtin_message_tables)
 
 ADD_CUSTOM_COMMAND(OUTPUT ${CMAKE_BINARY_DIR}/structs.py
 	DEPENDS kernel_c_objects ${BAREIO_SOURCES} ${CMAKE_SOURCE_DIR}/stage0/extract-structs.py

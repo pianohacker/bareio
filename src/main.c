@@ -2,8 +2,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// This is purely a marker for stage0/extract-builtin-message-tables.py.
-#define BAREIO_MESSAGE(context, name)
+#define BAREIO_MESSAGE(context, name) BareioObject* bareio_builtin_ ## context ## _ ## name (BareioObject *self, BareioMessage *message, BareioObject *locals)
 #define BAREIO_MESSAGES_RESET_CONTEXT ((ptrdiff_t) -2)
 #define BAREIO_MESSAGES_END ((ptrdiff_t) -1)
 #define PSCI_FAST_CALL (1 << 31)
@@ -11,15 +10,21 @@
 #define PSCI_0_2_FN_SYSTEM_OFF (PSCI_FAST_CALL | PSCI_SECURE_SERVICE_CALL | 8)
 
 typedef struct _BareioObject BareioObject;
-typedef struct _BareioTuple BareioTuple;
+typedef struct _BareioArguments BareioArguments;
 
 typedef struct {
 	ptrdiff_t name_offset;
 	BareioObject *forced_result;
-	BareioTuple *arguments;
+	BareioArguments *arguments;
 } BareioMessage;
 
-typedef void (BareioBuiltinMessageFunc)(BareioObject *self, BareioMessage *message);
+typedef BareioObject* (BareioBuiltinMessageFunc)(BareioObject *self, BareioMessage *message, BareioObject *locals);
+typedef BareioBuiltinMessageFunc* (BareioBuiltinLookupFunc)(ptrdiff_t name_offset);
+
+typedef struct {
+	void *dummy;
+	BareioMessage messages[];
+} BareioScript;
 
 typedef struct {
 	ptrdiff_t len;
@@ -27,7 +32,7 @@ typedef struct {
 } BareioString;
 
 struct _BareioObject {
-	BareioBuiltinMessageFunc *builtin_dispatch;
+	BareioBuiltinLookupFunc *builtin_lookup;
 
 	union {
 		BareioString *data_string;
@@ -35,9 +40,9 @@ struct _BareioObject {
 	};
 };
 
-struct _BareioTuple {
+struct _BareioArguments {
 	ptrdiff_t len;
-	BareioObject *members[];
+	BareioScript *members[];
 };
 
 volatile unsigned char* UART_START = (unsigned char*) 0x09000000;
@@ -54,10 +59,7 @@ void bareio_uart_nputs(ptrdiff_t n, const char *s) {
 	}
 }
 
-BAREIO_MESSAGE("globals", "say-hi")
-void bareio_builtin_globals_say_hi(BareioObject *self, BareioMessage *message) {
-	bareio_uart_puts("BareIO!\n");
-}
+BareioObject* bareio_run_in_context(BareioScript *script, BareioObject *context);
 
 void bareio_system_arm_hvc(uint32_t function_id) {
 	__asm__(
@@ -68,35 +70,30 @@ void bareio_system_arm_hvc(uint32_t function_id) {
 	);
 }
 
-BAREIO_MESSAGE("globals", "halt")
-void bareio_builtin_globals_halt(BareioObject *self, BareioMessage *message) {
+BAREIO_MESSAGE(globals, halt) {
 	bareio_system_arm_hvc(PSCI_0_2_FN_SYSTEM_OFF);
+
+	return self;
 }
 
-void _bareio_builtin_globals_dispatch(BareioObject *self, BareioMessage *message) {
-	BareioBuiltinMessageFunc *message_func;
-
-#   include "builtin-message-tables/globals.c"
-
-	message_func(self, message);
-}
-
-BAREIO_MESSAGE("string", "put")
-void bareio_builtin_string_put(BareioObject *self, BareioMessage *message) {
+BAREIO_MESSAGE(string, put) {
 	bareio_uart_nputs(self->data_string->len, self->data_string->contents);
 	bareio_uart_puts("\n");
+
+	return self;
 }
 
-void _bareio_builtin_string_dispatch(BareioObject *self, BareioMessage *message) {
-	BareioBuiltinMessageFunc *message_func;
+BAREIO_MESSAGE(string, putRange) {
+	BareioObject *start = bareio_run_in_context(message->arguments->members[0], locals);
+	BareioObject *end = bareio_run_in_context(message->arguments->members[1], locals);
 
-#   include "builtin-message-tables/string.c"
+	bareio_uart_nputs(end->data_integer - start->data_integer, self->data_string->contents + start->data_integer);
+	bareio_uart_puts("\n");
 
-	message_func(self, message);
+	return self;
 }
 
-BAREIO_MESSAGE("integer", "put")
-void bareio_builtin_integer_put(BareioObject *self, BareioMessage *message) {
+BAREIO_MESSAGE(integer, put) {
 	int64_t i = self->data_integer;
 	bool negative = i < 0;
 
@@ -116,43 +113,42 @@ void bareio_builtin_integer_put(BareioObject *self, BareioMessage *message) {
 
 	bareio_uart_puts(++pos);
 	bareio_uart_puts("\n");
+
+	return self;
 }
 
-void _bareio_builtin_integer_dispatch(BareioObject *self, BareioMessage *message) {
-	BareioBuiltinMessageFunc *message_func;
-
-#   include "builtin-message-tables/integer.c"
-
-	message_func(self, message);
-}
-
-void bareio_run_in_context(BareioMessage *msgs, BareioObject *context) {
+BareioObject* bareio_run_in_context(BareioScript *script, BareioObject *context) {
 	BareioObject *cur_context = context;
+	BareioObject *return_value = context;
 
-	for (BareioMessage *msg = msgs; msg->name_offset != BAREIO_MESSAGES_END; msg++) {
+	for (BareioMessage *msg = script->messages; msg->name_offset != BAREIO_MESSAGES_END; msg++) {
 		if (msg->name_offset == BAREIO_MESSAGES_RESET_CONTEXT) {
 			cur_context = context;
 			continue;
 		}
 
 		if (msg->forced_result) {
-			cur_context = msg->forced_result;
+			cur_context = return_value = msg->forced_result;
 		}
 
 		if (msg->name_offset < 0) {
-			cur_context->builtin_dispatch(cur_context, msg);
+			cur_context = return_value = (cur_context->builtin_lookup(msg->name_offset))(cur_context, msg, context);
 		}
 	}
+
+	return return_value;
 }
 
-extern BareioMessage _builtin_messages;
+extern BareioScript _builtin_script;
+
+#include "builtin-message-tables.c"
 
 void bareio_runtime_main() {
 	BareioObject globals = {
-		.builtin_dispatch = _bareio_builtin_globals_dispatch,
+		.builtin_lookup = _bareio_builtin_globals_lookup,
 	};
 
-	bareio_run_in_context(&_builtin_messages, &globals);
+	bareio_run_in_context(&_builtin_script, &globals);
 }
 
 extern const void *__stack_top;
