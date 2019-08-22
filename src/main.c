@@ -11,10 +11,12 @@
 #define PSCI_0_2_FN_SYSTEM_OFF (PSCI_FAST_CALL | PSCI_SECURE_SERVICE_CALL | 8)
 
 typedef struct _BareioObject BareioObject;
+typedef struct _BareioTuple BareioTuple;
 
 typedef struct {
 	ptrdiff_t name_offset;
 	BareioObject *forced_result;
+	BareioTuple *arguments;
 } BareioMessage;
 
 typedef void (BareioBuiltinMessageFunc)(BareioObject *self, BareioMessage *message);
@@ -31,6 +33,11 @@ struct _BareioObject {
 		BareioString *data_string;
 		int64_t data_integer;
 	};
+};
+
+struct _BareioTuple {
+	ptrdiff_t len;
+	BareioObject *members[];
 };
 
 volatile unsigned char* UART_START = (unsigned char*) 0x09000000;

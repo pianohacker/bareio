@@ -6,7 +6,6 @@
 # * Padding
 # * Unions with variable-width elements
 
-import construct
 from dataclasses import dataclass, field as dataclass_field
 import keyword
 import os
@@ -79,7 +78,7 @@ class DataGenerator(Generator):
 	name: str
 
 	def compile_arguments(self):
-		return self.name
+		return self.sanitized_name
 
 	def compile_initializers(self, indent):
 		return '\t' * indent + f'self.{self.sanitized_name} = {self.sanitized_name}'
@@ -88,6 +87,12 @@ class DataGenerator(Generator):
 class NumGenerator(DataGenerator):
 	width: int
 	is_pointer: bool
+
+	def compile_arguments(self):
+		if self.is_pointer:
+			return f'''{self.sanitized_name} = 0'''
+		else:
+			return self.name
 
 	def compile_compilers(self, indent):
 		if self.is_pointer:
@@ -103,6 +108,21 @@ class StringGenerator(DataGenerator):
 		return (
 			'\t' * indent + f'''print('.ascii "' + _escape_str(self.{self.sanitized_name}) + '"')\n''' +
 			'\t' * indent + f'''print('.align {target.WORD_SIZE}')'''
+		)
+
+@dataclass
+class NumListGenerator(DataGenerator):
+	is_pointer: bool
+
+	def compile_compilers(self, indent):
+		if self.is_pointer:
+			value_expr = f'''getattr(elem, "label", elem)'''
+		else:
+			value_expr = f'''elem'''
+
+		return (
+			'\t' * indent + f'''for elem in self.{self.sanitized_name}:\n''' +
+			'\t' * (indent + 1) + f'''print({value_expr})\n'''
 		)
 
 struct_def_start_pattern = re.compile(r'^(?:typedef )?struct(?: (\S+))? \{')
@@ -183,12 +203,15 @@ for filename in sys.argv[1:]:
 				continue
 
 			width = int(width_match.group(1))
-				
+
 			if width == 0:
 				if words[0] == 'char' and words[-1].endswith('[];'):
-					field = StringGenerator(name = words[1][:-3])
+					field = StringGenerator(name = words[-1][:-3])
 				else:
-					raise RuntimeError(f'Unhandled variable-length struct element: {words}')
+					field = NumListGenerator(
+						name = words[-1][:-3],
+						is_pointer = words[-2] == '*',
+					)
 			else:
 				field = NumGenerator(
 					name = words[-1].rstrip(';'),

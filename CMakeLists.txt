@@ -31,7 +31,7 @@ ADD_LIBRARY(kernel_c_objects OBJECT ${BAREIO_SOURCES})
 ADD_DEPENDENCIES(kernel_c_objects _builtin_message_targets)
 
 ADD_CUSTOM_COMMAND(OUTPUT ${CMAKE_BINARY_DIR}/structs.py
-	DEPENDS kernel_c_objects ${CMAKE_SOURCE_DIR}/stage0/extract-structs.py
+	DEPENDS kernel_c_objects ${BAREIO_SOURCES} ${CMAKE_SOURCE_DIR}/stage0/extract-structs.py
 	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 	COMMAND python3 stage0/extract-structs.py
 		$<TARGET_OBJECTS:kernel_c_objects>
@@ -39,7 +39,7 @@ ADD_CUSTOM_COMMAND(OUTPUT ${CMAKE_BINARY_DIR}/structs.py
 )
 
 ADD_CUSTOM_COMMAND(OUTPUT ${CMAKE_BINARY_DIR}/core.S
-	DEPENDS ${BAREIO_BUILTIN_SOURCES} ${CMAKE_SOURCE_DIR}/stage0/compiler.py ${CMAKE_BINARY_DIR}/structs.py
+	DEPENDS ${BAREIO_BUILTIN_SOURCES} ${CMAKE_SOURCE_DIR}/stage0/compiler.py ${CMAKE_SOURCE_DIR}/stage0/bareio/*.py ${CMAKE_BINARY_DIR}/structs.py
 	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 	COMMAND cat ${BAREIO_BUILTIN_SOURCES}
 		| python3 stage0/compiler.py
