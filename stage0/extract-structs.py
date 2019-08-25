@@ -14,7 +14,7 @@ import re
 import sys
 from typing import Any, List, Set
 
-from bareio import llvm_dwarfdump, target
+from bareio import llvm_dwarfdump, target, utils
 
 @dataclass
 class Generator:
@@ -27,7 +27,7 @@ class Generator:
 
 @dataclass
 class ContainerGenerator(Generator):
-	children: List[Generator] = dataclass_field(default_factory = lambda: [])
+	children: List[Generator]
 
 	def add_child(self, child: Generator):
 		self.children.append(child)
@@ -37,8 +37,7 @@ class ContainerGenerator(Generator):
 
 @dataclass
 class StructGenerator(ContainerGenerator):
-	name: str = ''
-	field_names: Set[str] = dataclass_field(default_factory = lambda: set())
+	name: str
 
 	def compile(self):
 		return (
@@ -89,21 +88,19 @@ class DataGenerator(Generator):
 @dataclass
 class NumGenerator(DataGenerator):
 	width: int
-	is_pointer: bool
-
-	def compile_arguments(self):
-		if self.is_pointer:
-			return f'''{self.sanitized_name} = 0'''
-		else:
-			return self.name
 
 	def compile_compilers(self, indent):
-		if self.is_pointer:
-			value_expr = f'''getattr(self.{self.sanitized_name}, "label", self.{self.sanitized_name})'''
-		else:
-			value_expr = f'''self.{self.sanitized_name}'''
+		return '\t' * indent + f'''print(f'.{self.width}byte {{self.{self.sanitized_name}}}')'''
 
-		return '\t' * indent + f'''print(f'.{self.width}byte {{{value_expr}}}')'''
+@dataclass
+class PointerGenerator(DataGenerator):
+	width: int
+
+	def compile_arguments(self):
+		return f'''{self.sanitized_name} = 0'''
+
+	def compile_compilers(self, indent):
+		return '\t' * indent + f'''print(f'.{self.width}byte {{getattr(self.{self.sanitized_name}, "label", self.{self.sanitized_name})}}')'''
 
 @dataclass
 class StringGenerator(DataGenerator):
@@ -162,99 +159,57 @@ structs = llvm_dwarfdump.collect_structs(
 	).stdout
 )
 
-sys.exit(0)
+def _generate_struct(walker, struct):
+	return StructGenerator(
+		name = struct.name,
+		children = list([x for x in walker.walk_all(struct.children) if x]),
+	)
 
-for filename in sys.argv[1:]:
-	pahole_result = list(enumerate(
-		line.rstrip('\n')
-		for line
-		in subprocess.run(
-			['pahole', '--anon_include', filename],
-			check=True,
+def _generate_value(walker, value):
+	return NumGenerator(
+		name = value.name,
+		width = value.width,
+	)
 
-			stdout=subprocess.PIPE,
-			text=True,
-		).stdout.split('\n')
-	))
+def _generate_pointer(walker, value):
+	return PointerGenerator(
+		name = value.name,
+		width = value.width,
+	)
 
-	structs = [
-		(i, m)
-		for (i, m)
-		in (
-			(i, struct_def_start_pattern.match(line))
-			for (i, line)
-			in pahole_result
+def _generate_flexible_struct_array(walker, value):
+	return DataListGenerator(
+		name = value.name,
+	)
+
+def _generate_flexible_value_array(walker, value):
+	if value.type == 'char':
+		return StringGenerator(
+			name = value.name
 		)
-		if m
-	]
+	else:
+		raise RuntimeError(f'unhandled flexible array type: {value.type}')
 
-	for i, match in structs:
-		name = match.group(1)
+def _generate_flexible_pointer_array(walker, value):
+	return PointerListGenerator(
+		name = value.name,
+		width = value.width,
+	)
 
-		stack = [StructGenerator()]
-		field_names = set()
+def _generate_union(walker, union):
+	return UnionGenerator(
+		children = list([x for x in walker.walk_all(union.children) if x]),
+	)
 
-		for j, line in pahole_result[i+1:]:
-			end_match = struct_def_end_pattern.match(line)
-			if end_match:
-				if end_match.group(1):
-					name = end_match.group(1)
-
-				break
-
-			orig_line = line
-			line = re.sub(r'/\*[^*]*\*/', '', line).rstrip()
-
-			if not line: continue
-
-			words = line.split()
-
-			if words[0] == 'union':
-				stack.append(UnionGenerator())
-				continue
-			elif words[0] == '};':
-				nested = stack.pop()
-				stack[-1].add_child(nested)
-
-				continue
-
-			# TODO padding?
-			width_match = width_pattern.search(orig_line)
-			if not width_match:
-				continue
-
-			width = int(width_match.group(1))
-
-			if width == 0:
-				if words[0] == 'char' and words[-1].endswith('[];'):
-					field = StringGenerator(name = words[-1][:-3])
-				elif words[1] == '*':
-					field = PointerListGenerator(
-						name = words[-1][:-3],
-						width = target.WORD_SIZE,
-					)
-				else:
-					field = DataListGenerator(
-						name = words[-1][:-3],
-					)
-			else:
-				field = NumGenerator(
-					name = words[-1].rstrip(';'),
-					is_pointer = words[-2] == '*',
-					width = width,
-				)
-
-			field_names.add(field.name)
-			stack[-1].add_child(field)
-
-		if not name:
-			print(f'WARN: could not find name of struct starting on line: f{i + 1}', file=sys.stderr)
-			break
-
-		if len(stack) != 1:
-			raise RuntimeError(f'Unclosed container from parsing: ' + "\n".join(line for (i, line) in pahole_result[i:j+1]))
-
-		stack[0].name = name.lstrip('_')
-		stack[0].field_names = field_names
-
-		print(stack[0].compile())
+for struct in structs.values():
+	print(
+		utils.walker({
+			llvm_dwarfdump.DwarfStruct: _generate_struct,
+			llvm_dwarfdump.DwarfMemberValue: _generate_value,
+			llvm_dwarfdump.DwarfMemberPointer: _generate_pointer,
+			llvm_dwarfdump.DwarfMemberFlexibleStructArray: _generate_flexible_struct_array,
+			llvm_dwarfdump.DwarfMemberFlexibleValueArray: _generate_flexible_value_array,
+			llvm_dwarfdump.DwarfMemberFlexiblePointerArray: _generate_flexible_pointer_array,
+			llvm_dwarfdump.DwarfMemberUnion: _generate_union,
+		}).walk(struct).compile()
+	)
