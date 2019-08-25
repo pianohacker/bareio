@@ -14,7 +14,7 @@ import re
 import sys
 from typing import Any, List, Set
 
-from bareio import target
+from bareio import llvm_dwarfdump, target
 
 @dataclass
 class Generator:
@@ -150,6 +150,19 @@ def _escape_str(s):
 	return s.encode('utf-8').decode('latin-1').encode('unicode_escape').decode('latin-1')
 
 ''')
+
+
+structs = llvm_dwarfdump.collect_structs(
+	subprocess.run(
+		['llvm-dwarfdump', '--debug-info'] + sys.argv[1:],
+		check=True,
+
+		stdout=subprocess.PIPE,
+		text=True,
+	).stdout
+)
+
+sys.exit(0)
 
 for filename in sys.argv[1:]:
 	pahole_result = list(enumerate(

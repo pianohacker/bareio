@@ -445,8 +445,11 @@ DwarfAttributeVal = namedtuple('DwarfAttributeVal', ['code'])
 
 class DwarfAttributeRef(namedtuple('DwarfAttributeRef', ['address', 'address_map'])):
 	@property
-	def contents(self):
+	def target(self):
 		return self.address_map[self.address]
+
+	def __repr__(self):
+		return f'DwarfAttributeRef(address = {self.address!r}, address_map = {{...}})'
 
 _DwarfRawDie = namedtuple('_DwarfRawDie', ['address', 'indent', 'tag', 'attributes']) 
 _DwarfRawAttributeRef = namedtuple('_DwarfRawAttributeRef', ['address', 'hint'])
@@ -513,6 +516,11 @@ def combine_dies(file):
 			if raw_die.tag == 'NULL':
 				continue
 
+			if raw_die.indent > (len(stack) - 1):
+				stack.append(stack[-1].children[-1])
+			elif raw_die.indent < (len(stack) - 1):
+				stack.pop()
+
 			die = DwarfDie(
 				address = raw_die.address,
 				tag = raw_die.tag,
@@ -525,22 +533,14 @@ def combine_dies(file):
 			)
 			address_map[die.address] = die
 
-			if raw_die.indent > (len(stack) - 1):
-				stack.append(stack[-1].children[-1])
-			elif raw_die.indent < (len(stack) - 1):
-				stack.pop()
-
 			stack[-1].children.append(die)
 
-		yield stack[0]
+		yield stack[0], address_map
 
 if __name__ == '__main__':
 	import sys
 
 	result = dwarfdump.parse(sys.stdin.read())
-
-	print(result)
-
 	files = [list(combine_dies(file)) for file in result]
 
 	print(files)
