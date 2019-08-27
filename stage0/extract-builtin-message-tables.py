@@ -59,6 +59,13 @@ lock_file_out = tempfile.NamedTemporaryFile(
 	delete = False,
 )
 
+### Header
+print('''
+#include <stddef.h>
+
+#include "bio-types.h"
+''')
+
 ### Jump table writing
 context_results = {}
 
@@ -77,6 +84,8 @@ for i, message in enumerate(message_contexts.items()):
 
 	for context in contexts:
 		func_name = func_disallowed_chars_pattern.sub('_', f'bareio_builtin_{context}_{message_name}')
+
+		context_results[context] = f'extern BareioBuiltinMessageFunc {func_name};\n' + context_results[context]
 
 		# We have to encode the message code oddly, because -WORD_MIN is parsed as -(WORD_MIN), and
 		# WORD_MIN is out of range for signed ints.
